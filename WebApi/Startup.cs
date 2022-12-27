@@ -1,4 +1,7 @@
-﻿namespace WebApi
+﻿using Microsoft.EntityFrameworkCore;
+using System.Text.Json.Serialization;
+
+namespace WebApi
 {
     public class Startup
     {
@@ -12,7 +15,12 @@
 
         public void ConfigureService(IServiceCollection services)
         {
-            services.AddControllers();
+            services.AddControllers().AddJsonOptions(x => 
+                x.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles);
+
+            services.AddDbContext<ApplicationDbContext>( options => 
+                options.UseSqlServer( Configuration.GetConnectionString("defaultConnection")));
+
             // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
             services.AddEndpointsApiExplorer();
             services.AddSwaggerGen();
