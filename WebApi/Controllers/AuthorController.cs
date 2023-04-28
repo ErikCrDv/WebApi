@@ -1,138 +1,104 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using AutoMapper;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using WebApi.DTOs;
 using WebApi.Filters;
 using WebApi.Models;
-using WebApi.Services;
 
 namespace WebApi.Controllers
 {
     [ApiController]
     [Route("api/authors")]
-    //[Authorize]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme, Policy = "isAdmin")]
     public class AuthorController : ControllerBase
     {
         private readonly ApplicationDbContext dbContext;
-        private readonly IService service;
-        private readonly ServiceTransiet serviceTransiet;
-        private readonly ServiceScoped serviceScoped;
-        private readonly ServiceSingleton serviceSingleton;
-        private readonly ILogger<AuthorController> logger;
+        private readonly IMapper mapper;
+        private readonly IConfiguration configuration;
+        //private readonly ILogger<AuthorController> logger;
 
         public AuthorController(
-            ApplicationDbContext dbContext, 
-            IService service,
-            ServiceTransiet serviceTransiet,
-            ServiceScoped serviceScoped,
-            ServiceSingleton serviceSingleton,
-            ILogger<AuthorController> logger
+            ApplicationDbContext dbContext,
+            IMapper mapper,
+            IConfiguration configuration
             )
         {
             this.dbContext = dbContext;
-            this.service = service;
-            this.serviceTransiet = serviceTransiet;
-            this.serviceScoped = serviceScoped;
-            this.serviceSingleton = serviceSingleton;
-            this.logger = logger;
+            this.mapper = mapper;
+            this.configuration = configuration;
         }
 
-        [HttpGet("GUID")]
-        //[ResponseCache(Duration = 10)]
-        [ServiceFilter(typeof(MyActionFilter))]
-        public ActionResult getGuid()
+
+        [HttpGet]
+        [AllowAnonymous]
+        public async Task<ActionResult<List<AuthorDTO>>> Get()
         {
-            return Ok( new {
-                AuthorControllerTransient = serviceTransiet.Guid,
-                ServiceATransient = service.GetTransient(),
-                AuthorControllerScoped = serviceScoped.Guid,
-                ServiceAScoped = service.GetScoped(),
-                AuthorControllerSingleton = serviceSingleton.Guid,
-                ServiceASingleton = service.GetSingleton()
-            });
+            var authors = await dbContext.Authors.ToListAsync();
+            return mapper.Map<List<AuthorDTO>>(authors);
         }
 
+        [HttpGet("{id:int}", Name = "getAuthorById")]
+        public async Task<ActionResult<AuthorDTOBooks>> Get(int id){
+            var author = await dbContext.Authors
+                .Include( authorDB => authorDB.AuthorsBooks )
+                .ThenInclude( authorBooksDB => authorBooksDB.Book )
+                .FirstOrDefaultAsync(author => author.Id == id);
 
-        [HttpGet] // Route Controller
-        [HttpGet("list")] // Route Concat
-        [HttpGet("/list")] // Route Action
-        [ServiceFilter(typeof(MyActionFilter))]
-        public async Task<ActionResult<List<Author>>> Get()
-        {
-            throw new NotImplementedException();
-            logger.LogInformation("We're getting the Athors");
-            //service.DoTask();
-            return await dbContext.Authors
-                .Include( author => author.Books )
-                .ToListAsync();
-        }
-
-        [HttpGet("first")]
-        public async Task<ActionResult<Author>> GetFisrt([FromHeader] int myValue, [FromQuery] string name)
-        {
-            return await dbContext.Authors.FirstOrDefaultAsync();
-        }
-        [HttpGet("firsttwo")]
-        public ActionResult<Author> GetFisrtTwo()
-        {
-            return new Author() { Name = "Autor Sinc"};
-        }
-
-        [HttpGet("{id:int}")]
-        public async Task<ActionResult<Author>> Get(int id){
-            var author = await dbContext.Authors.FirstOrDefaultAsync(author => author.Id == id);
             if( author == null )
             {
                 return NotFound(); 
             }
 
-            return Ok(author);
+            return Ok(mapper.Map<AuthorDTOBooks>(author));
         }
 
-        [HttpGet("{name}/{lastname?}")]
-        public async Task<ActionResult<Author>> Get( [FromRoute] string name)
+        [HttpGet("{name}")]
+        public async Task<ActionResult<List<AuthorDTO>>> Get( [FromRoute] string name)
         {
-            var author = await dbContext.Authors.FirstOrDefaultAsync(author => author.Name.Contains(name));
-            if (author == null)
-            {
-                return NotFound();
-            }
-
-            return Ok(author);
+            var authors = await dbContext.Authors.Where(author => author.Name.Contains(name)).ToListAsync();
+            return Ok(mapper.Map<List<AuthorDTO>>(authors));
         }
 
 
         [HttpPost]
-        public async Task<ActionResult> Post( [FromBody] Author author)
+        public async Task<ActionResult> Post( [FromBody] AuthorCreateDTO authorCreateDTO )
         {
-            var authorExists = await dbContext.Authors.AnyAsync( authorDb => authorDb.Name == author.Name );
+            var authorExists = await dbContext.Authors
+                .AnyAsync( authorDb => authorDb.Name == authorCreateDTO.Name );
+
             if (authorExists)
             {
                 return BadRequest("There is already an Author with the same name");
             }
+
+            var author = mapper.Map<Author>(authorCreateDTO);
+
             dbContext.Add(author);
             await dbContext.SaveChangesAsync();
-            return Ok(author);
+
+            var authorDTO = mapper.Map<AuthorDTO>( author );
+            return CreatedAtRoute("getAuthorById", new { id = author.Id }, authorDTO );
         }
 
         [HttpPut("{id:int}")]
-        public async Task<ActionResult> Put(Author author, int id)
+        public async Task<ActionResult> Put(AuthorCreateDTO authorCreateDTO, int id)
         {
-            if( author.Id != id)
-            {
-                return BadRequest("El ID del Author no coincide");
-            }
-
             var existAuthor = await dbContext.Authors.AnyAsync(author => author.Id == id);
 
             if (!existAuthor)
             {
                 return NotFound();
             }
+
+            var author = mapper.Map<Author>(authorCreateDTO);
+            author.Id = id; 
              
             dbContext.Update(author);
             await dbContext.SaveChangesAsync();
 
-            return Ok(author);
+            return NoContent();
         }
 
         [HttpDelete("{id:int}")]
